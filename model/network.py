@@ -889,14 +889,14 @@ class GCN_audio_top_med(nn.Module):
 
         out = torch.stack(graph_fusion_lst)
 
-        print('out.shape:', out.shape)
+        # print('out.shape:', out.shape)
         out = self.dropout(self.relu(self.bn1(self.fc1(out))))
         out = self.dropout(self.relu(self.bn2(self.fc2(out))))
 
         out = self.fc3(out)
         out = self.bn3(out)
         out = self.softmax(out)
-        print('out.shape:', out.shape)
+        # print('out.shape:', out.shape)
 
         return out, rows, columns
 
@@ -1044,11 +1044,11 @@ class GCN_audio_top_med_fea(nn.Module):
 
 
         out = torch.stack(graph_fusion_lst)
-        # print('out.shape:', out.shape)
+        # print('out.shape:', out.shape, out)
         out = self.dropout(self.relu(self.bn1(self.fc1(out))))
-        # print('out.shape:', out.shape)
+        # print('out.shape:', out.shape, out)
         out = self.dropout(self.relu(self.bn2(self.fc2(out))))
-        # print('out.shape:', out.shape)
+        # print('out.shape:', out.shape, out)
 
         return out, rows, columns
 

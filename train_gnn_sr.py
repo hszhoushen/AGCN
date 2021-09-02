@@ -219,7 +219,12 @@ def main():
         # image_gcn_med_7f_pt_pafm_5_20_epoch_10.pth.tar, 88.3%
         # image_gcn_med_7f_pt_pafm_5_20_epoch_5.pth.tar, 82%
         # image_gcn_med_7f_pt_pafm_5_20_epoch_0.pth.tar, 76.4%
-        best_model_name = os.path.join('./weights', args.dataset_name, args.model_name)
+        if (args.dataset_name == 'SUNRGBD'):
+            dataset_name = 'Places365-7'
+        else:
+            dataset_name = args.dataset_name
+
+        best_model_name = os.path.join('./weights', dataset_name, args.model_name)
 
         # load the pretrained-models
         print("=> loading checkpoint '{}'".format(best_model_name))
@@ -250,9 +255,14 @@ def main():
         np.random.seed(SEED)
         random.seed(SEED)
         # torch.use_deterministic_algorithms(True)
-        # 
+
         # torch.set_deterministic(True)
-        best_model_name = os.path.join('./weights', args.dataset_name, args.model_name)
+        if (args.dataset_name == 'SUNRGBD'):
+            dataset_name = 'Places365-7'
+        else:
+            dataset_name = args.dataset_name
+
+        best_model_name = os.path.join('./weights', dataset_name, args.model_name)
         print('best_model_name:', best_model_name)
 
         # load the pretrained-models
@@ -264,6 +274,7 @@ def main():
         audio_classifier.load_state_dict(checkpoint['audio_classifier_state_dict'])
         print("=> loaded checkpoint '{}' (epoch {}) (accuracy {})"
               .format(args.resume, checkpoint['epoch'], checkpoint['best_prec1']))
+
         AFM_net.eval()
         audio_gcn_model.eval()
         audio_classifier.eval()
@@ -275,13 +286,14 @@ def main():
         for param in audio_classifier.parameters(): # freeze netT
             param.requires_grad = False
 
-        img_file_lst = ['val/corridor/Places365_val_00034934.jpg', 'val/corridor/Places365_val_00034820.jpg',
-                        'val/bedroom/Places365_val_00015345.jpg', 'val/bedroom/Places365_val_00001822.jpg',
-                        'val/office/Places365_val_00001805.jpg', 'val/office/Places365_val_00004918.jpg',
-                        'val/dining_room/Places365_val_00017334.jpg', 'val/dining_room/Places365_val_00011164.jpg',
-                        'val/living_room/Places365_val_00035644.jpg', 'val/living_room/Places365_val_00008022.jpg',
-                        'val/kitchen/Places365_val_00035756.jpg', 'val/kitchen/Places365_val_00007731.jpg',
-                        'val/bathroom/Places365_val_00029507.jpg', 'val/bathroom/Places365_val_00019364.jpg']
+        img_file_lst = ['val/corridor/Places365_val_00034934.jpg', 'val/corridor/Places365_val_00034820.jpg', 'val/corridor/Places365_val_00028101.jpg',
+                        'val/bedroom/Places365_val_00015345.jpg', 'val/bedroom/Places365_val_00001822.jpg', 'val/bedroom/Places365_val_00009488.jpg',
+                        'val/bedroom/Places365_val_00020357.jpg',
+                        'val/office/Places365_val_00001805.jpg', 'val/office/Places365_val_00004918.jpg', 'val/office/Places365_val_00008146.jpg',
+                        'val/dining_room/Places365_val_00017334.jpg', 'val/dining_room/Places365_val_00011164.jpg', 'val/dining_room/Places365_val_00000611.jpg',
+                        'val/living_room/Places365_val_00035644.jpg', 'val/living_room/Places365_val_00008022.jpg', 'val/living_room/Places365_val_00018413.jpg',
+                        'val/kitchen/Places365_val_00035756.jpg', 'val/kitchen/Places365_val_00007731.jpg', 'val/kitchen/Places365_val_00004746.jpg',
+                        'val/bathroom/Places365_val_00029507.jpg', 'val/bathroom/Places365_val_00019364.jpg', 'val/bathroom/Places365_val_00028614.jpg']
 
         # img_file_lst = ['val/corridor/Places365_val_00034934.jpg', 'val/corridor/Places365_val_00034934.jpg']
         with torch.no_grad():
@@ -378,9 +390,9 @@ def main():
 
 
             # train for one epoch
-            # print('training')
-            # train_losses, train_acc1, train_acc5 = train(args, AFM_net, audio_gcn_model, audio_classifier,
-            #                                              train_loader, optimizer, criterion, epoch)
+            print('training')
+            train_losses, train_acc1, train_acc5 = train(args, AFM_net, audio_gcn_model, audio_classifier,
+                                                         train_loader, optimizer, criterion, epoch)
 
             # evaluate on validation set
             print('testing!')
@@ -407,15 +419,15 @@ def main():
             best_prec1 = max(test_acc1, best_prec1)
             print("The best test accuracy obtained during training is = {}".format(best_prec1))
 
-            if (epoch >=5 and epoch % 5 == 0):
+            if (epoch > 0 and epoch % 2 == 0):
                 # save checkpoints
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'arch': args.arch,
+                    'best_prec1': best_prec1,
                     'audio_net_state_dict': AFM_net.state_dict(),
                     'audio_gcn_model_state_dict':audio_gcn_model.state_dict(),
                     'audio_classifier_state_dict': audio_classifier.state_dict(),
-                    'best_prec1': best_prec1,
                 }, is_best, best_model_path, last_model_path)
 
             # TensorboardX writer
@@ -454,7 +466,6 @@ def train(args, AFM, audio_gcn_model, audio_classifier, data_loader, optimizer, 
 
         if(args.fusion == False):
             # compute output
-            print('image.shape:', image.shape)
             img_output, _ = AFM(image)
             gcn_output, rows, columns = audio_gcn_model(img_output)
             loss = criterion(gcn_output, label)
@@ -468,13 +479,13 @@ def train(args, AFM, audio_gcn_model, audio_classifier, data_loader, optimizer, 
         else:
             # compute output
             img_output, resnet_output = AFM(image)
-            print('img_output.shape:', img_output.shape, 'resnet_output.shape:', resnet_output.shape)
+            # print('img_output.shape:', img_output.shape, 'resnet_output.shape:', resnet_output.shape)
 
             gcn_output, rows, columns = audio_gcn_model(img_output)
-            print('gcn_output.shape:', gcn_output.shape, gcn_output)
+            # print('gcn_output.shape:', gcn_output.shape, gcn_output)
 
             fused_output = audio_classifier(gcn_output, resnet_output)
-            print('fused_output.shape:', fused_output.shape, fused_output)
+            # print('fused_output.shape:', fused_output.shape, fused_output)
 
             loss = criterion(fused_output, label)
 
@@ -505,7 +516,7 @@ def train(args, AFM, audio_gcn_model, audio_classifier, data_loader, optimizer, 
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
-                   epoch, i, len(data_loader), batch_time=batch_time,
+                   epoch+1, i, len(data_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses, top1=top1, top5=top5))
 
     return losses.avg, top1.avg, top5.avg
@@ -567,7 +578,7 @@ def validate(args, AFM, audio_gcn_model, audio_classifier, data_loader, criterio
                     'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                     'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                     'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
-                    epoch, i, len(data_loader), batch_time=batch_time, loss=losses,
+                    epoch+1, i, len(data_loader), batch_time=batch_time, loss=losses,
                     top1=top1, top5=top5))
 
         print(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'
