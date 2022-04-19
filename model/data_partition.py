@@ -281,7 +281,7 @@ def esc_dataset_construction(csv_dir, test_set_id, dataset_name):
     dataset_pd = pd.DataFrame(pd.read_csv(csv_dir))
     print('datasetname:', dataset_name)
 
-    if dataset_name == 'esc10':
+    if dataset_name == 'ESC10':
         print('datasetname:', dataset_name)
         train_dataset = dataset_pd.loc[(dataset_pd['fold'] != test_set_id) & (dataset_pd['esc10'] == True)]
         test_dataset = dataset_pd.loc[(dataset_pd['fold'] == test_set_id) &  (dataset_pd['esc10'] == True)]
@@ -290,7 +290,7 @@ def esc_dataset_construction(csv_dir, test_set_id, dataset_name):
         test_sample = test_dataset['filename'].tolist()
         test_label = test_dataset['target'].tolist()
 
-    elif dataset_name == 'esc50':
+    elif dataset_name == 'ESC50':
         print('datasetname:', dataset_name)
         train_dataset = dataset_pd.loc[(dataset_pd['fold'] != test_set_id)]
         test_dataset = dataset_pd.loc[(dataset_pd['fold'] == test_set_id)]

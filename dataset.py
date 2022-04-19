@@ -6,19 +6,100 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import os
 import numpy as np
+from model.data_partition import esc_dataset_construction
 
 class DatasetSelection(object):
-    def __init__(self, dataset_name):
-        self.dataset_name = dataset_name
+
+    def datasetSelection(self, args):
+        audio_datasets = ['ESC10', 'ESC50', 'US8K']
+        if args.dataset_name in audio_datasets:
+            if args.dataset_name == 'US8K':
+                csv_file = '/data/lgzhou/dataset/UrbanSound8K/metadata/UrbanSound8K.csv'
+                data_dir = '/data/lgzhou/dataset/UrbanSound8K/audio/'
+                data_sample = esc_dataset_construction(csv_file, args.test_set_id, args.dataset_name)
+
+            elif args.dataset_name == 'ESC10' or 'ESC50':
+                csv_file = '/data/lgzhou/dataset/ESC-50/meta/esc50.csv'
+                data_dir = '/data/lgzhou/dataset/ESC-50/audio/'
+                data_sample = esc_dataset_construction(csv_file, args.test_set_id, args.dataset_name)
+
+            return data_dir, data_sample
+
+        else:
+            if(args.dataset_name == 'Places365-7'):
+                # Data directory
+                data_dir = '/data/dataset/Places365-7'
+
+                # load the dictionary which contains objects for every image in dataset
+                # one_hot = self.load_dict('object_information/150obj_Places365_7.json')
+
+                # class information
+                # file_name = './object_information/categories_Places365_7.txt'
+                # classes = list()
+                # with open(file_name) as class_file:
+                #     for line in class_file:
+                #         classes.append(line.strip().split(' ')[0][3:])
+                # classes = tuple(classes)
+
+            elif(args.dataset_name == 'Places365-14'):
+                # Data directory
+                data_dir = '/data/dataset/Places365-14'
+
+                # load the dictionary which contains objects for every image in dataset
+                # one_hot = self.load_dict('object_information/150obj_Places365_14.json')
+
+                # class information
+                # file_name = './object_information/categories_Places365_14.txt'
+                # classes = list()
+                # with open(file_name) as class_file:
+                #     for line in class_file:
+                #         classes.append(line.strip().split(' ')[0][3:])
+                # classes = tuple(classes)
+
+            elif(args.dataset_name == 'SUNRGBD'):
+                # Data directory
+                data_dir = '/data/dataset/SUNRGBD'
+
+                # load the dictionary which contains objects for every image in dataset
+                # one_hot = self.load_dict('object_information/150obj_7classes_SUN.json')
+
+                # class information
+                # file_name = './object_information/categories_Places365_7.txt'
+                # classes = list()
+                # with open(file_name) as class_file:
+                #     for line in class_file:
+                #         classes.append(line.strip().split(' ')[0][3:])
+                # classes = tuple(classes)
+            elif(args.dataset_name == 'NYUdata'):
+                data_dir = '/data/dataset/NYUdata'
+
+
+            elif (args.dataset_name == 'MIT67'):
+                # Data directory
+                data_dir = '/data/dataset/MIT67'
+                # class information
+                # file_name = './object_information/categories_Places365_7.txt'
+                # classes = list()
+                # with open(file_name) as class_file:
+                #     for line in class_file:
+                #         classes.append(line.strip().split(' ')[0][3:])
+                # classes = tuple(classes)
+            elif (args.dataset_name == 'SUN_RGBD'):
+                data_dir = '/data/dataset/SUN_RGBD'
+
+            elif (args.dataset_name == 'NYUdata'):
+                data_dir = '/data/dataset/NYUdata'
+            
+        return data_dir
 
     def load_dict(self, filename):
-        with open(filename,"r") as json_file:
+        with open(filename, "r") as json_file:
             dic = json.load(json_file)
         return dic
 
     def discriminative_matrix_estimation(self):
         # create p_o_c matrix
-        if(self.dataset_name == 'Places365-7' or self.dataset_name == 'SUNRGBD'):
+        if (self.dataset_name == 'Places365-7' or self.dataset_name == 'SUNRGBD'):
             fileName = './object_information/150obj_result_Places365_7.npy'
             self.num_sp = np.load(fileName)
             fileName = './object_information/150obj_number_Places365_7.npy'
@@ -26,111 +107,45 @@ class DatasetSelection(object):
             self.cls_num = 7
             self.obj_num = 150
 
-        elif(self.dataset_name == 'Places365-14'):
+        elif (self.dataset_name == 'Places365-14'):
             fileName = './object_information/150obj_result_Places365_14.npy'
             self.num_sp = np.load(fileName)
             fileName = './object_information/150obj_number_Places365_14.npy'
-            self.num_total=np.load(fileName)
+            self.num_total = np.load(fileName)
             self.cls_num = 14
             self.obj_num = 150
 
-        matrix_p_o_c = np.zeros(shape=(self.cls_num,self.obj_num,self.obj_num))
+        matrix_p_o_c = np.zeros(shape=(self.cls_num, self.obj_num, self.obj_num))
 
         for i in range(self.cls_num):
-            X=[]
-            Y=[]
-            Z=[]
+            X = []
+            Y = []
+            Z = []
             p_o_c = self.num_sp[i] / self.num_total[i]
-            p_o_c = p_o_c.reshape(1,p_o_c.shape[0])
-        #    print(p_o_c)
-            p_o_c_tran=p_o_c.T
-        #    print(p_o_c_tran)
-            matrix_p_o_c[i]=np.dot(p_o_c_tran,p_o_c)
-            
-            
-        matrix_p_c_o = np.zeros(shape=(self.cls_num,self.obj_num,self.obj_num))
-        discriminative_matrix = np.zeros(shape=(self.obj_num,self.obj_num))
-        temp=np.zeros(shape=self.cls_num)
+            p_o_c = p_o_c.reshape(1, p_o_c.shape[0])
+            #    print(p_o_c)
+            p_o_c_tran = p_o_c.T
+            #    print(p_o_c_tran)
+            matrix_p_o_c[i] = np.dot(p_o_c_tran, p_o_c)
+
+        matrix_p_c_o = np.zeros(shape=(self.cls_num, self.obj_num, self.obj_num))
+        discriminative_matrix = np.zeros(shape=(self.obj_num, self.obj_num))
+        temp = np.zeros(shape=self.cls_num)
         for i in range(self.obj_num):
             for j in range(self.obj_num):
-                sum=0
+                sum = 0
                 for k in range(self.cls_num):
-                    sum += matrix_p_o_c[k][i][j]*1/self.cls_num
+                    sum += matrix_p_o_c[k][i][j] * 1 / self.cls_num
                 if sum == 0:
-                    matrix_p_c_o[k][i][j]=0
+                    matrix_p_c_o[k][i][j] = 0
                     continue
                 for k in range(self.cls_num):
-                    matrix_p_c_o[k][i][j]=matrix_p_o_c[k][i][j]*1/self.cls_num/sum
-                    temp[k]=matrix_p_c_o[k][i][j]
-                discriminative_matrix[i][j]=temp.std()
+                    matrix_p_c_o[k][i][j] = matrix_p_o_c[k][i][j] * 1 / self.cls_num / sum
+                    temp[k] = matrix_p_c_o[k][i][j]
+                discriminative_matrix[i][j] = temp.std()
 
         # print('discriminative_matrix:', discriminative_matrix.shape, discriminative_matrix)
         return discriminative_matrix
-
-    def datasetSelection(self):
-        if(self.dataset_name == 'Places365-7'):
-            # Data directory
-            data_dir = '/data/dataset/Places365-7'
-
-            # load the dictionary which contains objects for every image in dataset
-            # one_hot = self.load_dict('object_information/150obj_Places365_7.json')
-
-            # class information
-            # file_name = './object_information/categories_Places365_7.txt'
-            # classes = list()
-            # with open(file_name) as class_file:
-            #     for line in class_file:
-            #         classes.append(line.strip().split(' ')[0][3:])
-            # classes = tuple(classes)
-
-
-        elif(self.dataset_name == 'Places365-14'):
-            # Data directory
-            data_dir = '/data/dataset/Places365-14'
-
-            # load the dictionary which contains objects for every image in dataset
-            # one_hot = self.load_dict('object_information/150obj_Places365_14.json')
-
-            # class information
-            # file_name = './object_information/categories_Places365_14.txt'
-            # classes = list()
-            # with open(file_name) as class_file:
-            #     for line in class_file:
-            #         classes.append(line.strip().split(' ')[0][3:])
-            # classes = tuple(classes)
-
-        elif(self.dataset_name == 'SUNRGBD'):
-            # Data directory
-            data_dir = '/data/dataset/SUNRGBD'
-
-            # load the dictionary which contains objects for every image in dataset
-            # one_hot = self.load_dict('object_information/150obj_7classes_SUN.json')
-
-            # class information
-            # file_name = './object_information/categories_Places365_7.txt'
-            # classes = list()
-            # with open(file_name) as class_file:
-            #     for line in class_file:
-            #         classes.append(line.strip().split(' ')[0][3:])
-            # classes = tuple(classes)
-
-        elif (self.dataset_name == 'MIT67'):
-            # Data directory
-            data_dir = '/data/dataset/MIT67'
-            # class information
-            # file_name = './object_information/categories_Places365_7.txt'
-            # classes = list()
-            # with open(file_name) as class_file:
-            #     for line in class_file:
-            #         classes.append(line.strip().split(' ')[0][3:])
-            # classes = tuple(classes)
-
-        # elif(args.dataset == 'vpc'):
-        #     data_dir = vpc_dir
-        #     home_dir = os.path.join(data_dir, 'data_'+args.hometype)
-        #     valdir = os.path.join(home_dir,args.floortype)
-
-        return data_dir
 
 class ImageFolderWithPaths(datasets.ImageFolder):
         """Custom dataset that includes image file paths. Extends

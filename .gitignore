@@ -8,6 +8,9 @@ __pycache__/
 __pycache__
 */__pycache__
 
+# weights
+.pt
+
 # C extensions
 *.so
 

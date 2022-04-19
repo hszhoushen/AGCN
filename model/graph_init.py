@@ -22,8 +22,8 @@ class Graph_Init(object):
             self.c4 = [13]
             self.g5 = [4, 9, 19]
             self.c5 = [14]
-            self.g6 = [10, 12, 13]
-            self.c6 = [11]
+            # self.g6 = [10, 12, 13]
+            # self.c6 = [11]
 
         elif (self.K == 24):
 
@@ -39,27 +39,27 @@ class Graph_Init(object):
             self.c5 = [16]
             self.g6 = [5, 11, 23]
             self.c6 = [17]
-            self.g7 = [12, 13, 15, 16, 17]
-            self.c7 = [14]
+            # self.g7 = [12, 13, 15, 16, 17]
+            # self.c7 = [14]
 
         elif (self.K == 16):
-            self.g1 = [0, 2, 4, 8]
-            self.c1 = [3]
-            self.g2 = [1, 5, 7, 9]
-            self.c2 = [6]
-            self.g3 = [11, 12, 14, 15]
-            self.c3 = [13]
-            self.g4 = [3, 6, 13]
-            self.c4 = [10]
+            # self.g1 = [0, 2, 4, 8]
+            # self.c1 = [3]
+            # self.g2 = [1, 5, 7, 9]
+            # self.c2 = [6]
+            # self.g3 = [11, 12, 14, 15]
+            # self.c3 = [13]
+            # self.g4 = [3, 6, 13]
+            # self.c4 = [10]
 
-            # self.g1 = [0, 4, 12]
-            # self.c1 = [8]
-            # self.g2 = [1, 5, 13]
-            # self.c2 = [9]
-            # self.g3 = [2, 6, 14]
-            # self.c3 = [10]
-            # self.g4 = [3, 7, 15]
-            # self.c4 = [11]
+            self.g1 = [0, 4, 12]
+            self.c1 = [8]
+            self.g2 = [1, 5, 13]
+            self.c2 = [9]
+            self.g3 = [2, 6, 14]
+            self.c3 = [10]
+            self.g4 = [3, 7, 15]
+            self.c4 = [11]
 
         elif (self.K == 4):
             self.g1 = [0,1,3]
@@ -196,9 +196,9 @@ class Graph_Init(object):
                         # print('i:', i, 'j:', j)
                         self.A[i][j] = 1
 
-                    elif (i in self.g6 or j in self.g6) and (i in self.c6 or j in self.c6):
-                        # print('i:', i, 'j:', j)
-                        self.A[i][j] = 1
+                    # elif (i in self.g6 or j in self.g6) and (i in self.c6 or j in self.c6):
+                    #     # print('i:', i, 'j:', j)
+                    #     self.A[i][j] = 1
 
         elif (self.K == 24):
             for i in range(self.K):
@@ -228,26 +228,27 @@ class Graph_Init(object):
                         # print('i:', i, 'j:', j)
                         self.A[i][j] = 1
 
-                    elif (i in self.g7 or j in self.g7) and (i in self.c7 or j in self.c7):
-                        # print('i:', i, 'j:', j)
-                        self.A[i][j] = 1
+                    # elif (i in self.g7 or j in self.g7) and (i in self.c7 or j in self.c7):
+                    #     # print('i:', i, 'j:', j)
+                    #     self.A[i][j] = 1
 
     def Adjacency_matrix_calculation(self, rows, columns):
         if(rows.shape[0] != self.batch_size):
             print('rows.shape:', rows.shape)
             print('columns.shape:', columns.shape)
+
         for idx in range(rows.shape[0]):
             # e.g., 0*K~0*K+K (0-16), 2*K~2*K+K (32-48)
-            rowstopK = rows[idx, 0:self.K]
-            colstopK = columns[idx, 0:self.K]
+            rowsmaxK = rows[idx, 0:self.K]
+            colsmaxK = columns[idx, 0:self.K]
 
             for i in range(len(self.A)):
                 for j in range(len(self.A[i])):
 
                     if(self.A[i][j] == 1):
                         # print('before:', self.Adjacency_matrix[idx][i][j])
-                        self.Adjacency_matrix_top[idx][i][j] = abs(rowstopK[i]-rowstopK[j]) + \
-                                                             abs(colstopK[i]-colstopK[j])
+                        self.Adjacency_matrix_top[idx][i][j] = abs(rowsmaxK[i]-rowsmaxK[j]) + \
+                                                             abs(colsmaxK[i]-colsmaxK[j])
                         # print('after:', self.Adjacency_matrix[idx][i][j])
 
             # e.g., 0*K+K, 0*K+2*K (16-32), 2*K+K, 2*K+2*K (48-64)

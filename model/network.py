@@ -12,7 +12,7 @@ from resnet_audio.resnet_audio import resnet50, resnet18
 import torch.utils.model_zoo as model_zoo
 import torchvision.models as models
 
-# 默认的resnet网络，已预训练
+# 默认的resnet网络，已预训
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
     'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
@@ -259,13 +259,14 @@ def audio_med_forward(nodes_num, Faudio):
 
     return sound_batch, Lnormtop.cuda(), Lnormmed.cuda(), rows, columns
 
-def img_med_forward(nodes_num, Faudio, sound_graph_construction):
-    N = Faudio.shape[0]  # batch size
-    W = Faudio.shape[2]
-    H = Faudio.shape[3]
+def graph_max_med_construct(nodes_num, Feature, graph_construction):
+    N = Feature.shape[0]  # batch size
+    W = Feature.shape[2]
+    H = Feature.shape[3]
 
     # acquire Fre (N,H,W) from Frgb (N,C,H,W)
-    Fre = torch.sum(Faudio, dim=1)
+    Fre = torch.sum(Feature, dim=1)
+    # print('Fre.shape:', Fre.shape, Fre)
 
     # Acquire the top K index of Fre
     feature = Fre.view(N, H * W)
@@ -275,47 +276,50 @@ def img_med_forward(nodes_num, Faudio, sound_graph_construction):
     # print('sorted:', sorted.shape, sorted)
     # print('indices:', indices.shape, indices)
 
-    topK_index = indices[:, 0:nodes_num]
-    avgK_index = indices[:, (H * W // 2 - nodes_num // 2 - 1):(H * W // 2 - nodes_num // 2 - 1 + nodes_num)]
+    maxK_index = indices[:, 0:nodes_num]
+    medK_index = indices[:, (H * W // 2 - nodes_num // 2 - 1):(H * W // 2 - nodes_num // 2 - 1 + nodes_num)]
     # print('topK_index:', topK_index.shape)
     # print('avg_index:', avgK_index.shape)
-    scene_index = torch.cat([topK_index, avgK_index], dim=1)
-    # print('scene_index:', scene_index.shape)
+
+    scene_index = torch.cat([maxK_index, medK_index], dim=1)
+    # print('scene_index:', scene_index.shape, scene_index)
 
     rows = scene_index // H
     columns = scene_index % H
 
     nodes = []
-    sound_batch = []
+    graph_batch = []
 
     # shape of topK_index is (N, nodes_num*2)
     for i in range(N):                          # lop from one image to other
         for j in range(int(rows.shape[1])):     # loop from one node to other
             # switch the feature from 1x1024 to 1024x1
-            node = Faudio[i, :, rows[i, j], columns[i, j]].reshape(-1, 1)
+            node = Feature[i, :, rows[i, j], columns[i, j]].reshape(-1, 1)
             nodes.append(node)
 
         # convert the list to torch tensor
-        sound = torch.stack(nodes)
+        graph = torch.stack(nodes)
         # clear nodes
         nodes = []
         # save the torch tensor to list
-        sound_batch.append(sound)
+        graph_batch.append(graph)
 
-
-    sound_batch = torch.stack(sound_batch)
+    graph_batch = torch.stack(graph_batch)
+    # graph_batch, shape of [bs, nodes_num*2, 1024, 1]
+    # print('graph_batch:', graph_batch.shape, graph_batch)
     # Adjacency matrix calculation
-    Lnormtop, Lnormmed = sound_graph_construction.Dynamic_Lnorm(rows, columns)
+    Lnormtop, Lnormmed = graph_construction.Dynamic_Lnorm(rows, columns)
+    # print('Lnormtop:', Lnormtop.shape, Lnormtop, 'Lnormmed:', Lnormmed.shape, Lnormmed)
 
-    return sound_batch, Lnormtop.cuda(), Lnormmed.cuda(), rows, columns
+    return graph_batch, Lnormtop.cuda(), Lnormmed.cuda(), rows, columns
 
 
 class ConvBNReLU(nn.Module):
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
+    def __init__(self, in_chan, out_chan, kernel_size=3, stride=1, padding=1, *args, **kwargs):
         super(ConvBNReLU, self).__init__()
         self.conv = nn.Conv2d(in_chan,
                               out_chan,
-                              kernel_size=ks,
+                              kernel_size=kernel_size,
                               stride=stride,
                               padding=padding,
                               bias=False)
@@ -391,7 +395,7 @@ class MultiheadAttention(nn.Module):
 class AttentionFusionModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
         super(AttentionFusionModule, self).__init__()
-        self.conv = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
+        self.conv = ConvBNReLU(in_chan, out_chan, kernel_size=1, stride=1, padding=0)
         self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias=False)
         self.bn_atten = BatchNorm2d(out_chan)
         self.sigmoid_atten = nn.Sigmoid()
@@ -418,62 +422,59 @@ class AttentionFusionModule(nn.Module):
         return atten
 
 class AFM(nn.Module):
-    def __init__(self, args, pretrain=True):
+    def __init__(self, args):
         super(AFM, self).__init__()
-
-        if (args.dataset_name == 'Places365-7'):
+        if args.arch == 'resnet18':
             # no pretrained model
-            # img_resnet50 = resnet50(num_classes=1000)
-            # model_arch = 'resnet50'
-            # print('Loading the pretrained model from the weights {%s}!' % model_urls[model_arch])
-            # img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
-
-            img_resnet50 = resnet50(num_classes=14)
-            model_file = './weights/resnet50_best_res50.pth.tar'
-            print('Loading the pretrained model from the weights {%s}!' % model_file)
-            checkpoint = torch.load(model_file)
-            state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
-            img_resnet50.load_state_dict(state_dict)
-
-            img_resnet50.cuda()
-            for param in img_resnet50.parameters():
-                param.requires_grad = True
-
-        if (args.dataset_name == 'Places365-14'):
-            # pretrained model
-            img_resnet50 = resnet50(num_classes=14)
-            model_file = './weights/resnet50_best_res50.pth.tar'
-            print('Loading the pretrained model from the weights {%s}!' % model_file)
-            checkpoint = torch.load(model_file)
-            state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
-            img_resnet50.load_state_dict(state_dict)
-            img_resnet50.cuda()
-            for param in img_resnet50.parameters():
-                param.requires_grad = True
-
-        elif(args.dataset_name=='MIT67'):
-            # no pretrained model
-            img_resnet50 = resnet50(num_classes=1000)
-            model_arch = 'resnet50'
-            print('Loading the pretrained model from the weights {%s}!' % model_urls[model_arch])
-            img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
+            img_resnet50 = resnet18(num_classes=1000)
+            print('Loading the pretrained model from the weights {%s}!' % model_urls[args.arch])
+            img_resnet50.load_state_dict(model_zoo.load_url(model_urls[args.arch]))
             img_resnet50.cuda()
 
             for param in img_resnet50.parameters():
                 param.requires_grad = True
 
+        elif args.arch == 'resnet50':
+            if (args.dataset_name == 'Places365-7'):
+                if args.pretrain == True:
+                    img_resnet50 = resnet50(num_classes=14)
+                    model_file = './weights/resnet50_best_res50.pth.tar'
+                    print('Loading the pretrained model from the weights {%s}!' % model_file)
+                    checkpoint = torch.load(model_file)
+                    state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
+                    img_resnet50.load_state_dict(state_dict)
+                    img_resnet50.cuda()
+                    for param in img_resnet50.parameters():
+                        param.requires_grad = True
+                else:
+                    # no pretrained model
+                    img_resnet50 = resnet18(num_classes=1000)
+                    model_arch = 'resnet50'
+                    print('Loading the pretrained model from the weights {%s}!' % model_urls[model_arch])
+                    img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
+                    img_resnet50.cuda()
 
-        # img_resnet50.fc = nn.Linear(2048, args.num_classes)
-        # img_resnet50.cuda()
+                    for param in img_resnet50.parameters():
+                        param.requires_grad = True
+
+        # ESC dataset
+        else:
+            # create the model for classification
+            img_resnet50 = resnet50(num_classes=527)
+            img_resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
+            state = torch.load(args.audio_net_weights)['model']
+            img_resnet50.load_state_dict(state)
+            for param in img_resnet50.parameters():
+                param.requires_grad = True
+
+        img_resnet50.fc = nn.Linear(2048, args.num_classes)
+        img_resnet50.cuda()
 
         self.img_resnet50 = img_resnet50
         self.afm = AttentionFusionModule(3072, 1024)
-        self.conv_head32 = ConvBNReLU(2048, 1024, ks=3, stride=1, padding=1)
-        self.conv_head16 = ConvBNReLU(1024, 1024, ks=3, stride=1, padding=1)
+        self.conv_head32 = ConvBNReLU(2048, 1024, kernel_size=3, stride=1, padding=1)
+        self.conv_head16 = ConvBNReLU(1024, 1024, kernel_size=3, stride=1, padding=1)
 
-        # self.conv_head1 = ConvBNReLU(512, 512, ks=3, stride=1, padding=1)
-        # self.sam = StripAttentionModule(512, 512)
-        # self.conv_head2 = ConvBNReLU(512, 512, ks=3, stride=1, padding=1)
 
     def forward(self, x):
         resnet_output, feat8, feat16, feat32 = self.img_resnet50(x)
@@ -519,11 +520,11 @@ class AFM(nn.Module):
         return feat16_sum, resnet_output
 
 
-class PyramidAttentionFusionModule(nn.Module):
+class FeaturePyramidAttentionModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(PyramidAttentionFusionModule, self).__init__()
-        self.conv1 = ConvBNReLU(in_chan, int(out_chan/2), ks=1, stride=1, padding=0)
-        self.conv2 = ConvBNReLU(in_chan, int(out_chan/2), ks=3, padding=1)
+        super(FeaturePyramidAttentionModule, self).__init__()
+        self.conv1 = ConvBNReLU(in_chan, int(out_chan/2), kernel_size=1, stride=1, padding=0)
+        self.conv2 = ConvBNReLU(in_chan, int(out_chan/2), kernel_size=3, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.maxpool = nn.AdaptiveMaxPool2d(1)
 
@@ -534,9 +535,10 @@ class PyramidAttentionFusionModule(nn.Module):
         self.sigmoid_atten = nn.Sigmoid()
 
     def forward(self, Fm1, Fm2, Fm3):
-        Fm1_down = F.interpolate(Fm1, scale_factor=0.5)
-        Fm3_up = F.interpolate(Fm3, Fm2.size()[2:], mode='nearest')
+        # Fm1_down = F.interpolate(Fm1, scale_factor=0.5)
+        Fm1_down = F.interpolate(Fm1, Fm2.size()[2:], mode='nearest')
 
+        Fm3_up = F.interpolate(Fm3, Fm2.size()[2:], mode='nearest')
 
         fcat = torch.cat([Fm2, Fm3_up, Fm1_down], dim=1)
         # dimension reduction
@@ -568,14 +570,14 @@ class PyramidAttentionFusionModule(nn.Module):
         return atten
 
 class SpatialAttention(nn.Module):
-    def __init__(self, in_channels=4, out_channels=1, kernel_size=3):
+    def __init__(self, in_fea_dim=1024, in_channels=4, out_channels=1, kernel_size=3):
         super(SpatialAttention, self).__init__()
 
         assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
         padding = 3 if kernel_size == 7 else 1
 
-        self.conv1 = nn.Conv2d(1024, 1, 3, padding=1, bias=False)     # 3x3 conv, padding=1
-        self.conv2 = nn.Conv2d(1024, 1, 1, padding=0, bias=False)     # 1x1 conv, padding=0
+        self.conv1 = nn.Conv2d(in_fea_dim, 1, 3, padding=1, bias=False)     # 3x3 conv, padding=1
+        self.conv2 = nn.Conv2d(in_fea_dim, 1, 1, padding=0, bias=False)     # 1x1 conv, padding=0
         self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, bias=False)
 
         self.sigmoid = nn.Sigmoid()
@@ -599,70 +601,99 @@ class SpatialAttention(nn.Module):
 
         return self.sigmoid(x)
 
-class PAFM(nn.Module):
-    def __init__(self, args, pretrain=True):
-        super(PAFM, self).__init__()
+class FPAM(nn.Module):
+    def __init__(self, args):
+        super(FPAM, self).__init__()
+        if args.arch == 'resnet18':
+            if args.pretrain == True:
+                img_resnet50 = resnet18(num_classes=365)
+                model_file = './weights/resnet18_places365.pth.tar'
+                print('Loading the pretrained model from the weights {%s}!' % args.arch)
+                checkpoint = torch.load(model_file)
+                state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
+                img_resnet50.load_state_dict(state_dict)
+            else:
+                img_resnet50 = resnet18(num_classes=1000)
+                print('Loading the pretrained model from the weights {%s}!' % model_urls[args.arch])
+                img_resnet50.load_state_dict(model_zoo.load_url(model_urls[args.arch]))
 
-        if (args.dataset_name == 'Places365-7' or args.dataset_name == 'SUNRGBD'):
-            # no pretrained model
-            # img_resnet50 = resnet50(num_classes=1000)
-            # model_arch = 'resnet50'
-            # print('Loading the pretrained model from the weights {%s}!' % model_urls[model_arch])
-            # img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
+        elif args.arch == 'resnet50':
+            if args.pretrain == True:
+                img_resnet50 = resnet50(num_classes=14)
+                model_file = './weights/resnet50_best_res50.pth.tar'
+                print('Loading the pretrained model from the weights {%s}!' % args.arch)
+                checkpoint = torch.load(model_file)
+                state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
+                img_resnet50.load_state_dict(state_dict)
+            else:
+                img_resnet50 = resnet50(num_classes=1000)
+                print('Loading the pretrained model from the weights {%s}!' % model_urls[args.arch])
+                img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
 
-            img_resnet50 = resnet50(num_classes=14)
-            model_file = './weights/resnet50_best_res50.pth.tar'
-            print('Loading the pretrained model from the weights {%s}!' % model_file)
-            checkpoint = torch.load(model_file)
-            state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
-            img_resnet50.load_state_dict(state_dict)
+        # model for the audio net
+        else:
+            if args.pretrain==True:
+                # create the model for classification
+                img_resnet50 = resnet50(num_classes=527)
+                img_resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
+                state = torch.load(args.audio_net_weights)['model']
+                print('Loading the pretrained model from the weights {%s}!' % args.audio_net_weights)
+                img_resnet50.load_state_dict(state)
+                img_resnet50.fc = nn.Linear(2048, args.num_classes)
+                
+            elif args.pretrain==False:
+                img_resnet50 = resnet50(num_classes=1000)
+                print('Loading the pretrained model from the weights {%s}!' % model_urls[args.arch])
+                img_resnet50.load_state_dict(model_zoo.load_url(model_urls[args.arch]))
+                img_resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
 
-            img_resnet50.cuda()
-            for param in img_resnet50.parameters():
-                param.requires_grad = True
+                
+        if args.arch == 'resnet50':
+            img_resnet50.fc = nn.Linear(2048, args.num_classes)
+            glob_fea_dim = 1024
 
-        if (args.dataset_name == 'Places365-14'):
-            # pretrained model
-            img_resnet50 = resnet50(num_classes=14)
-            model_file = './weights/resnet50_best_res50.pth.tar'
-            print('Loading the pretrained model from the weights {%s}!' % model_file)
-            checkpoint = torch.load(model_file)
-            state_dict = {str.replace(k, 'module.', ''): v for k, v in checkpoint['state_dict'].items()}
-            img_resnet50.load_state_dict(state_dict)
-            img_resnet50.cuda()
-            for param in img_resnet50.parameters():
-                param.requires_grad = True
+            self.conv_Fm1 = ConvBNReLU(512, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.conv_Fm2 = ConvBNReLU(1024, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.conv_Fm3 = ConvBNReLU(2048, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.fpam = FeaturePyramidAttentionModule(in_chan=3072, out_chan=glob_fea_dim)
+            self.bn_fpam = BatchNorm2d(glob_fea_dim)
+            self.sa1 = SpatialAttention(in_fea_dim=glob_fea_dim)
+            self.sa2 = SpatialAttention(in_fea_dim=glob_fea_dim)
+            self.sa3 = SpatialAttention(in_fea_dim=glob_fea_dim)
 
-        elif(args.dataset_name=='MIT67'):
-            # no pretrained model
-            img_resnet50 = resnet50(num_classes=1000)
-            model_arch = 'resnet50'
-            print('Loading the pretrained model from the weights {%s}!' % model_urls[model_arch])
-            img_resnet50.load_state_dict(model_zoo.load_url(model_urls[model_arch]))
-            img_resnet50.cuda()
+        elif args.arch == 'resnet18':
+            img_resnet50.fc = nn.Linear(512, args.num_classes)
 
-            for param in img_resnet50.parameters():
-                param.requires_grad = True
+            glob_fea_dim = 256
+            self.conv_Fm1 = ConvBNReLU(128, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.conv_Fm2 = ConvBNReLU(256, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.conv_Fm3 = ConvBNReLU(512, glob_fea_dim, ks=3, stride=1, padding=1)
+            self.fpam = FeaturePyramidAttentionModule(in_chan=768, out_chan=glob_fea_dim)
+            self.bn_fpam = BatchNorm2d(glob_fea_dim)
+            self.sa1 = SpatialAttention(in_fea_dim=glob_fea_dim)
+            self.sa2 = SpatialAttention(in_fea_dim=glob_fea_dim)
+            self.sa3 = SpatialAttention(in_fea_dim=glob_fea_dim)
 
+        # require gradient
+        for param in img_resnet50.parameters():
+            param.requires_grad = True
+        # to cuda
+        img_resnet50.cuda()
         self.img_resnet50 = img_resnet50
-        self.pafm = PyramidAttentionFusionModule(3072, 1024)
-
-        self.conv_Fm1 = ConvBNReLU(512, 1024, ks=3, stride=1, padding=1)
-        self.conv_Fm2 = ConvBNReLU(1024, 1024, ks=3, stride=1, padding=1)
-        self.conv_Fm3 = ConvBNReLU(2048, 1024, ks=3, stride=1, padding=1)
-
-        self.sa1 = SpatialAttention()
-        self.sa2 = SpatialAttention()
-        self.sa3 = SpatialAttention()
 
 
     def forward(self, x):
+        # print("input x:", x.shape)
         resnet_output, Fm1, Fm2, Fm3 = self.img_resnet50(x)
-
+        # print('Fm1:', Fm1.shape, 'Fm2:', Fm2.shape, 'Fm3:', Fm3.shape, 'resnet_output:', resnet_output.shape)
         hFm2, wFm2 = Fm2.size()[2:]
 
         Fm1 = self.conv_Fm1(Fm1)
+        # print('Fm1.shape:', Fm1.shape)
+
         Fms1 = self.sa1(Fm1)
+        # print('Fms1.shape:', Fms1.shape)
+
         Fm1 = torch.mul(Fm1, Fms1)
         # print('Fm1.shape:', Fm1.shape)
 
@@ -672,26 +703,38 @@ class PAFM(nn.Module):
         # print('Fm2.shape:', Fm2.shape)
 
         Fm3 = self.conv_Fm3(Fm3)       # C: 2048->1024
-        Fms3 = self.sa3(Fm3)
-        Fm3 = torch.mul(Fm3, Fms3)
+        # print('Fm3.shape:', Fm3.shape)
 
-        atten = self.pafm(Fm1, Fm2, Fm3)        # C: 1024, 1024, 1024 -> 3072 -> 1024
+        Fms3 = self.sa3(Fm3)
+        # print('Fms3.shape:', Fms3.shape)
+
+        Fm3 = torch.mul(Fm3, Fms3)
+        # print('Fm3.shape:', Fm3.shape)
+
+        atten = self.fpam(Fm1, Fm2, Fm3)        # C: 1024, 1024, 1024 -> 3072 -> 1024
+        # print('atten.shape:', atten.shape)
 
         Fm3_up = F.interpolate(Fm3, (hFm2, wFm2), mode='nearest')
-        Fm3_up = torch.mul(Fm3_up, atten/3)
+        # print('Fm3_up.shape:', Fm3_up.shape)
 
-        Fm1_down = F.interpolate(Fm1, scale_factor=0.5)
+        Fm3_up = torch.mul(Fm3_up, atten/3)
+        # print('Fm3_up.shape:', Fm3_up.shape)
+
+        # Fm1_down = F.interpolate(Fm1, scale_factor=0.5)
+        Fm1_down = F.interpolate(Fm1, (hFm2, wFm2), mode='nearest')
+        # print('Fm1_down.shape:', Fm1_down.shape)
+
         Fm1_down = torch.mul(Fm1_down, atten/3)
+        # print('Fm1_down.shape:', Fm1_down.shape)
 
         Fm2 = torch.mul(Fm2, atten/3)
+        # print('Fm2.shape:', Fm2.shape)
 
-        Fm2_sum = Fm2 + Fm1_down + Fm3_up
+        fpam_output = Fm2 + Fm1_down + Fm3_up
+        fpam_output = self.bn_fpam(fpam_output)
+        # print('fpam_output:', fpam_output.shape, torch.mean(fpam_output), torch.var(fpam_output))
 
-        # print("Fm2_sum[:,:10,:10,:1]",Fm2_sum[:,:10,:10,:1])
-        # print("resnet_output[:,:10,:10,:1]",resnet_output[:,:10,:10,:1])
-
-        return Fm2_sum, resnet_output
-
+        return fpam_output, resnet_output
 
 class GCN_audio_fea(nn.Module):
 
@@ -794,7 +837,7 @@ class GCN_audio_top_med(nn.Module):
     def __init__(self, args):
         super(GCN_audio_top_med, self).__init__()
         self.nodes_num = args.nodes_num
-        self.batch_size = args.bs
+        self.batch_size = args.batch_size
         self.num_classes = args.num_classes
 
         if(args.dataset_name == 'Places365-7'):
@@ -900,55 +943,170 @@ class GCN_audio_top_med(nn.Module):
 
         return out, rows, columns
 
-        # for i in range(sound_graph.shape[0]):
-        #     sound = sound_graph[i][0:self.K]
-        #     print('sound.shape:', sound.shape)
-        #     sound_m = sound_graph[i][self.K:2*self.K]
-        #     print('sound_m.shape:', sound_m.shape)
-        #
-        #     # img->16x1024x1 to x->16x1024x1x1
-        #     x = sound.view(sound.shape[0], sound.shape[1], 1, 1)
-        #     x_m = sound_m.view(sound_m.shape[0], sound_m.shape[1], 1, 1)
-        #
-        #     print('x:', x.shape)
-        #     print('x_m:', x_m.shape)
-        #     # x = self.MHA(x)
-        #     # x_m = self.MHA(x_m)
-        #
-        #     # after conv1 and relu, x-> 16x256x1x1
-        #     x = self.relu(self.conv1(x))
-        #     # remove 1x1, obtain x-> 16x256
-        #     x = x.view(x.shape[0], x.shape[1])
-        #     print('x:', x.shape)
-        #
-        #     x_m = self.relu(self.conv1(x_m))
-        #     x_m = x_m.view(x_m.shape[0], x_m.shape[1])
-        #     print('x_m:', x_m.shape)
-        #
-        #     y = torch.mm(Lnormtop[i], x)
-        #     y = y.view(y.shape[0]*y.shape[1])
-        #     print('y.shape:', y.shape)
-        #
-        #     y_m = torch.mm(Lnormmed[i], x_m)
-        #     y_m = y_m.view(y_m.shape[0]*y_m.shape[1])
-        #     print('y_m.shape:', y_m.shape)
-        #
-        #     y = torch.cat((y,y_m),0)
-        #     print('y.cat shape:', y.shape)
-        #
-        #     out = self.fc1(y)
-        #     print('fc1:', out.shape)
-        #     out = self.relu(out)
-        #     out = self.dropout(out)
-        #     out = self.fc2(out)
-        #     print('fc2:', out.shape)
-        #
-        #     out = self.relu(out)
-        #     out = self.dropout(out)
-        #     out = self.fc3(out)
-        #     print('fc3:', out.shape)
-        #
-        #     outs.append(out)
+class FPAGCN(nn.Module):
+    
+    def __init__(self, args):
+        super(FPAGCN, self).__init__()
+        # Attention Model Initialization
+        if (args.atten_type == 'afm'):
+            FPAM_net = AFM(args)
+
+        elif (args.atten_type == 'fpam'):
+            FPAM_net = FPAM(args)
+
+        # single model
+        if (args.fusion == False):
+            gcn_max_med_model = GCN_audio_top_med(args)
+        # fusion model
+        else:
+            gcn_max_med_model = GCN_max_med_fusion(args)
+
+        for param in FPAM_net.parameters():
+            param.requires_grad = True
+        for param in gcn_max_med_model.parameters():
+            param.requires_grad = True
+
+        if args.status == 'train':
+            FPAM_net = FPAM_net.cuda()
+            gcn_max_med_model = gcn_max_med_model.cuda()
+            
+    def forward(self, images):
+        fpam_output, resnet_output = FPAM_net(images)
+        gcn_output, rows, columns = gcn_max_med_model(fpam_output, resnet_output)
+
+        return gcn_output, rows, columns
+        
+
+
+class GCN_max_med_fusion(nn.Module):
+
+    def __init__(self, args):
+        super(GCN_max_med_fusion, self).__init__()
+        self.nodes_num = args.nodes_num
+        self.batch_size = args.batch_size
+        self.num_classes = args.num_classes
+        self.graph_construction = Graph_Init(self.nodes_num, self.batch_size)
+        
+        if args.arch == 'resnet50':
+            self.convBnRelu_max = ConvBNReLU(1024, 256, kernel_size=1, stride=1, padding=0)
+            self.convBnRelu_med = ConvBNReLU(1024, 256, kernel_size=1, stride=1, padding=0)
+
+            self.relu = nn.ReLU()
+            self.dropout = nn.Dropout(0.25)
+            out_dim = 2048
+
+            if (self.nodes_num == 4):
+                self.fc1 = nn.Linear(1024, out_dim)
+            elif (self.nodes_num == 8):
+                self.fc1 = nn.Linear(2048, out_dim)
+            elif (self.nodes_num == 12):
+                self.fc1 = nn.Linear(3072, out_dim)
+            elif (self.nodes_num == 16):
+                self.fc1 = nn.Linear(4096, out_dim)
+            elif (self.nodes_num == 20):
+                self.fc1 = nn.Linear(5120, out_dim)
+            elif (self.nodes_num == 24):
+                self.fc1 = nn.Linear(6144, out_dim)
+
+            self.bn1 = nn.BatchNorm1d(2048)
+
+            self.fc2 = nn.Linear(2048, 1024)
+            self.bn2 = nn.BatchNorm1d(1024)
+            self.fc3 = nn.Linear(1024, self.num_classes)
+            self.bn3 = nn.BatchNorm1d(self.num_classes)
+
+        elif args.arch == 'resnet18':
+            glob_fea_dim = 256
+            self.convBnRelu_max = ConvBNReLU(glob_fea_dim, 256, kernel_size=1, stride=1, padding=0)
+            self.convBnRelu_med = ConvBNReLU(glob_fea_dim, 256, kernel_size=1, stride=1, padding=0)
+
+            self.relu = nn.ReLU()
+            self.dropout = nn.Dropout(0.25)
+
+            out_dim = 512
+            if (self.nodes_num == 4):
+                self.fc1 = nn.Linear(1024, out_dim)
+            elif (self.nodes_num == 8):
+                self.fc1 = nn.Linear(2048, out_dim)
+            elif (self.nodes_num == 12):
+                self.fc1 = nn.Linear(3072, out_dim)
+            elif (self.nodes_num == 16):
+                self.fc1 = nn.Linear(4096, out_dim)
+            elif (self.nodes_num == 20):
+                self.fc1 = nn.Linear(5120, out_dim)
+            elif (self.nodes_num == 24):
+                self.fc1 = nn.Linear(6144, out_dim)
+
+            self.bn1 = nn.BatchNorm1d(out_dim)
+
+            self.fc2 = nn.Linear(512, 256)
+            self.bn2 = nn.BatchNorm1d(256)
+            self.fc3 = nn.Linear(256, self.num_classes)
+            self.bn3 = nn.BatchNorm1d(self.num_classes)
+
+
+    def forward(self, fpam_output, resnet_output):
+        scene_graph, Lnormtop, Lnormmed, rows, columns = graph_max_med_construct(self.nodes_num, fpam_output, self.graph_construction)
+        # print('scene_graph.shape:', scene_graph.shape, scene_graph)
+
+        scene_max_graph = scene_graph[:, 0:self.nodes_num]
+        # print('scene_max_graph.shape:', scene_max_graph.shape)
+
+        scene_med_graph = scene_graph[:, self.nodes_num:2 * self.nodes_num]
+        # print('scene_med_graph.shape:', scene_med_graph.shape)
+
+        # img->16x1024x1 to x->16x1024x1x1
+        x_max = scene_max_graph.reshape(scene_max_graph.shape[0]*scene_max_graph.shape[1], scene_max_graph.shape[2], 1, 1)
+        x_med = scene_med_graph.reshape(scene_med_graph.shape[0]*scene_med_graph.shape[1], scene_med_graph.shape[2], 1, 1)
+        # print('x_max:', x_max.shape, x_max)
+        # print('x_med:', x_med.shape, x_med)
+
+        # after conv1 and relu, x-> 16x256x1x1
+        x_max = self.convBnRelu_max(x_max)
+        x_max = x_max.view(fpam_output.shape[0], int(x_max.shape[0]/fpam_output.shape[0]), x_max.shape[1])
+        # print('x_max:', x_max.shape, x_max)
+
+        x_med = self.convBnRelu_med(x_med)
+        x_med = x_med.view(fpam_output.shape[0], int(x_med.shape[0]/fpam_output.shape[0]), x_med.shape[1])
+        # print('x_med:', x_med.shape, x_med)
+
+        graph_fusion_lst = []
+        for i in range(scene_graph.shape[0]):
+            y_max = torch.mm(Lnormtop[i], x_max[i])
+            y_med = torch.mm(Lnormmed[i], x_med[i])
+            # print('y_max.shape:', y_max.shape)
+            # print('y_med.shape:', y_med.shape)
+
+            y_max = y_max.view(y_max.shape[0] * y_max.shape[1])
+            y_med = y_med.view(y_med.shape[0] * y_med.shape[1])
+            # print('reshape y_max.shape:', y_max.shape)
+            # print('reshape y_med.shape:', y_med.shape)
+            graph_fusion = (y_max + y_med) / 2
+            graph_fusion_lst.append(graph_fusion)
+
+        # print("graph_fusion_lst[0].shape",graph_fusion_lst[0].shape)
+        out = torch.stack(graph_fusion_lst)
+        # print("out.shape", out.shape)
+
+        out = self.relu(self.bn1(self.fc1(out)))
+        # print("out.shape", out.shape)
+        # print("resnet_output.shape", resnet_output.shape)
+
+
+
+        fused_out = (out + resnet_output) / 2
+        print('fused_out:', fused_out.shape, fused_out)
+
+        fused_out = self.dropout(self.relu(self.bn2(self.fc2(fused_out))))
+        print('fused_out:', fused_out.shape, fused_out)
+
+        fused_out = self.fc3(fused_out)
+        # print('fused_out:', fused_out.shape, fused_out)
+
+        fused_out = self.bn3(fused_out)
+        # print('fused_out:', fused_out.shape, fused_out)
+
+        return fused_out, rows, columns
 
 # audio_fusion_med.py
 class GCN_audio_top_med_fea(nn.Module):
@@ -956,7 +1114,7 @@ class GCN_audio_top_med_fea(nn.Module):
     def __init__(self, args):
         super(GCN_audio_top_med_fea, self).__init__()
         self.nodes_num = args.nodes_num
-        self.batch_size = args.bs
+        self.batch_size = args.batch_size
         self.num_classes = args.num_classes
 
         self.conv1 = nn.Conv2d(in_channels=1024, out_channels=256, kernel_size=1, bias=True)
@@ -1096,36 +1254,5 @@ class GCN_audio_top_med_fea(nn.Module):
         # return results, rows, columns
 
 
-class Audio_Fusion_Classifier(nn.Module):
-
-    def __init__(self, args):
-        super(Audio_Fusion_Classifier, self).__init__()
-        self.num_classes = args.num_classes
-        # gcn feature 512, resnet feature, 2048
-
-        self.fc1 = nn.Linear(2560, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.fc2 = nn.Linear(512, self.num_classes)
-        self.bn2 = nn.BatchNorm1d(self.num_classes)
-
-        self.dropout = nn.Dropout(0.5)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, gcn_predicts, model_predicts):
-        # model_predicts = model_predicts.view(model_predicts.shape[0], model_predicts.shape[1])
-        # print('shape:', gcn_predicts.shape, model_predicts.shape)
-
-        out = torch.cat((gcn_predicts, model_predicts), dim=1)
-        # print('out:', out.shape)
-
-        out = self.fc1(out)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-
-        out = self.fc2(out)
-        out = self.bn2(out)
-
-        return out
 
 

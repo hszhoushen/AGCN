@@ -11,7 +11,7 @@ import random
 import librosa.display
 import matplotlib.pyplot as plt
 
-normalizer = np.load('../data/audio_feature_normalizer.npy')
+normalizer = np.load('./data/audio_feature_normalizer.npy')
 mu    = normalizer[0]
 sigma = normalizer[1]
 
@@ -158,7 +158,7 @@ def sound_inference(dataset_name, sound_path):
     sound = np.expand_dims(sound, 0)
     sound = np.expand_dims(sound, 0)
 
-    return np.asarray(sound).astype(float)
+    return np.asarray(sound).astype('float32')
 
 
 def augment_image(image):
@@ -169,6 +169,8 @@ def augment_image(image):
     enhancer = ImageEnhance.Color(image)
     image = enhancer.enhance(random.random()*0.6 + 0.7)
     return image
+
+
 
 class CVS_Audio(Dataset):
     def __init__(self, args, data_dir, data_sample, data_type='train', enhance=True):  # 'train' 'val' 'test'
@@ -191,6 +193,25 @@ class CVS_Audio(Dataset):
 
         self.enable_enhancement = enhance
 
+    def esc10_label_rename(self, label):
+        if self.dataset_name == 'ESC10':
+            if label == 41:
+                label = 9
+            elif label == 12:
+                label = 4
+            elif label == 40:
+                label = 8
+            elif label == 10:
+                label = 2
+            elif label == 20:
+                label = 5
+            elif label == 38:
+                label = 7
+            elif label == 21:
+                label = 6
+            elif label == 11:
+                label = 3
+        return label
 
     def __len__(self):
         return len(self.data_sample)
@@ -203,7 +224,7 @@ class CVS_Audio(Dataset):
         # print('sound_path:', sound_path)
 
         label = self.data_label[idx]
-        # print('label:', label)
+        label = self.esc10_label_rename(label)
 
         sound = audio_extract(self.dataset_name, sound_path)
         sound = ((sound - mu) / sigma).astype('float32')
@@ -267,7 +288,7 @@ class CVS_Audio(Dataset):
         sound = np.expand_dims(sound, 0)
         # print('sound:', sound.shape)
 
-        return np.asarray(sound).astype(float), label   #, self.data_sample[item]
+        return np.asarray(sound).astype('float32'), label, idx   #, self.data_sample[item]
 
 class CVSDataset(Dataset):
 
