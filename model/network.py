@@ -601,6 +601,7 @@ class SpatialAttention(nn.Module):
 
         return self.sigmoid(x)
 
+# for ESC
 class FPAM(nn.Module):
     def __init__(self, args):
         super(FPAM, self).__init__()
@@ -648,7 +649,7 @@ class FPAM(nn.Module):
                 img_resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=1, padding=3, bias=False)
 
                 
-        if args.arch == 'resnet50':
+        if args.arch == 'resnet50-audio':
             img_resnet50.fc = nn.Linear(2048, args.num_classes)
             glob_fea_dim = 1024
 
@@ -977,7 +978,7 @@ class FPAGCN(nn.Module):
         return gcn_output, rows, columns
         
 
-
+# for ESC
 class GCN_max_med_fusion(nn.Module):
 
     def __init__(self, args):
@@ -987,7 +988,7 @@ class GCN_max_med_fusion(nn.Module):
         self.num_classes = args.num_classes
         self.graph_construction = Graph_Init(self.nodes_num, self.batch_size)
         
-        if args.arch == 'resnet50':
+        if args.arch == 'resnet50-audio':
             self.convBnRelu_max = ConvBNReLU(1024, 256, kernel_size=1, stride=1, padding=0)
             self.convBnRelu_med = ConvBNReLU(1024, 256, kernel_size=1, stride=1, padding=0)
 
@@ -1095,10 +1096,10 @@ class GCN_max_med_fusion(nn.Module):
 
 
         fused_out = (out + resnet_output) / 2
-        print('fused_out:', fused_out.shape, fused_out)
+        # print('fused_out:', fused_out.shape, fused_out)
 
         fused_out = self.dropout(self.relu(self.bn2(self.fc2(fused_out))))
-        print('fused_out:', fused_out.shape, fused_out)
+        # print('fused_out:', fused_out.shape, fused_out)
 
         fused_out = self.fc3(fused_out)
         # print('fused_out:', fused_out.shape, fused_out)

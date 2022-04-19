@@ -616,18 +616,19 @@ def main(args, config):
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
-    if config.AMP_OPT_LEVEL != "O0":
+    if config.AMP_OPT_LEVEL != "O0": 
         [FPAM_net, gcn_max_med_model], optimizer = amp.initialize([FPAM_net, gcn_max_med_model],
                                                                   optimizer, opt_level=config.AMP_OPT_LEVEL)
 
-    FPAM_net = torch.nn.parallel.DistributedDataParallel(FPAM_net, device_ids=[config.LOCAL_RANK],
-                                                         broadcast_buffers=False, find_unused_parameters=True)
-
-    gcn_max_med_model = torch.nn.parallel.DistributedDataParallel(gcn_max_med_model, device_ids=[config.LOCAL_RANK],
-                                                                  broadcast_buffers=False, find_unused_parameters=True)
-
-    FPAM_net_without_ddp = FPAM_net.module
-    gcn_max_med_model_without_ddp = gcn_max_med_model.module
+    # distributed training
+    # FPAM_net = torch.nn.parallel.DistributedDataParallel(FPAM_net, device_ids=[config.LOCAL_RANK],
+    #                                                      broadcast_buffers=False, find_unused_parameters=True)
+    #
+    # gcn_max_med_model = torch.nn.parallel.DistributedDataParallel(gcn_max_med_model, device_ids=[config.LOCAL_RANK],
+    #                                                               broadcast_buffers=False, find_unused_parameters=True)
+    #
+    # FPAM_net_without_ddp = FPAM_net.module
+    # gcn_max_med_model_without_ddp = gcn_max_med_model.module
 
     # learning rate schedule
     lr_scheduler = build_scheduler(config, optimizer, len(train_loader))
@@ -757,8 +758,8 @@ def main(args, config):
                     'arch': args.arch,
                     'test_acc1': test_acc1,
                     'best_prec1': best_prec1,
-                    'audio_net_state_dict': FPAM_net_without_ddp.state_dict(),
-                    'gcn_max_med_model_state_dict':gcn_max_med_model_without_ddp.state_dict(),
+                    'audio_net_state_dict': FPAM_net.state_dict(),
+                    'gcn_max_med_model_state_dict':gcn_max_med_model.state_dict(),
                     'optimizer': optimizer,
                 }, is_best, best_model_path, last_model_path)
 
@@ -1047,28 +1048,32 @@ if __name__ == '__main__':
     if config.AMP_OPT_LEVEL != "O0":
         assert amp is not None, "amp not installed!"
 
-    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        rank = int(os.environ["RANK"])
-        world_size = int(os.environ['WORLD_SIZE'])
-        print(f"RANK and WORLD_SIZE in environ: {rank}/{world_size}")
-    else:
-        rank = -1
-        world_size = -1
+    # if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+    #     rank = int(os.environ["RANK"])
+    #     world_size = int(os.environ['WORLD_SIZE'])
+    #     print(f"RANK and WORLD_SIZE in environ: {rank}/{world_size}")
+    # else:
+    #     rank = -1
+    #     world_size = -1
 
-    torch.cuda.set_device(config.LOCAL_RANK)
-    torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
-    torch.distributed.barrier()
+    # torch.cuda.set_device(config.LOCAL_RANK)
+    # torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+    # torch.distributed.barrier()
 
-    seed = config.SEED + dist.get_rank()
+    seed = config.SEED # + dist.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
     cudnn.benchmark = True
 
 
     # linear scale the learning rate according to total batch size, may not be optimal
-    linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
-    linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+    # linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+    # linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+    # linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
+
+    linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE / 512.0
+    linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE / 512.0
+    linear_scaled_min_lr = config.TRAIN.MIN_LR * config.DATA.BATCH_SIZE / 512.0
 
     # gradient accumulation also need to scale the learning rate
     if config.TRAIN.ACCUMULATION_STEPS > 1:
@@ -1088,11 +1093,12 @@ if __name__ == '__main__':
 
     logger = create_logger(output_dir=config.OUTPUT, dist_rank=0, name=f"{config.MODEL.TYPE}")
 
-    if dist.get_rank() == 0:
-        path = os.path.join(config.OUTPUT, "config.json")
-        with open(path, "w") as f:
-            f.write(config.dump())
-        logger.info(f"Full config saved to {path}")
+    # if dist.get_rank() == 0:
+
+    path = os.path.join(config.OUTPUT, "config.json")
+    with open(path, "w") as f:
+        f.write(config.dump())
+    logger.info(f"Full config saved to {path}")
 
     # print config
     logger.info(config.dump())
