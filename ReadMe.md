@@ -37,7 +37,7 @@ These graphs capture informative acoustic and visual regions and their relations
 The repository includes experiment scripts for several audio and visual scene-recognition settings, including:
 
 - Audio: ESC-10, ESC-50, and UrbanSound8K
-- Visual: MIT67, Places365-7, Places365-14, NYU, and SUN RGB-D
+- Visual: Places365-7, Places365-14, and SUN RGB-D
 
 The scripts are starting points, not plug-and-play commands: they use machine-specific Conda environment names and GPU IDs. Before running one, configure the environment, dataset locations, GPU selection, and any dataset-specific options for your machine. Dataset access and preparation may be subject to each dataset's own terms.
 
